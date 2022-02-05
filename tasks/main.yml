@@ -1,2 +1,22 @@
 ---
 # tasks file for ansible-role-openshift4-cleanup
+
+- name: Ensure config dir is set
+  fail:
+    msg: "conf_dir must be defined"
+  when: conf_dir is not defined
+
+- name: Slurp json state
+  shell: grep -A 2 'ClusterID' {{ conf_dir }}/.openshift_install_state.json | grep InfraID | awk '{print $2}' | tr -d '"' | awk -F\- '{print $NF}'
+  register: cluster_state
+
+- name: Set cluster infra name
+  set_fact:
+    infra_id: '{{ cluster_state.stdout }}'
+
+- name: Show infra name
+  debug:
+    var: infra_id
+
+- name: Destroy ec2 instances
+  include_tasks: ec2_cleanup.yml

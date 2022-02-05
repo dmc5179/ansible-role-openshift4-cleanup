@@ -1,2 +1,5 @@
 ---
 # defaults file for ansible-role-openshift4-cleanup
+
+# Directory passed to the openshift-install binary as --dir where state is maintained
+conf_dir:

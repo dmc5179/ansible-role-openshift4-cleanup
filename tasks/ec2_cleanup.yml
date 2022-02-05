@@ -1,0 +1,10 @@
+---
+
+- name: Find OpenShift 4 EC2 Instances
+  amazon.aws.ec2_instance_info:
+    region: "{{ aws_region }}"
+    ec2_url: "{{ cloudformation_endpoint }}"
+    validate_certs: "{{ aws_ssl_enabled }}"
+    filters:
+      "tag:kubernetes.io/cluster/{{ infra_id }}": "owned"
+  register: ec2_node_info
