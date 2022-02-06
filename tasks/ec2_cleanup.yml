@@ -1,10 +1,176 @@
 ---
 
 - name: Find OpenShift 4 EC2 Instances
-  amazon.aws.ec2_instance_info:
-    region: "{{ aws_region }}"
-    ec2_url: "{{ cloudformation_endpoint }}"
-    validate_certs: "{{ aws_ssl_enabled }}"
-    filters:
-      "tag:kubernetes.io/cluster/{{ infra_id }}": "owned"
+  delegate_to: localhost
+  shell: aws ec2 describe-instances --filters "Name=tag:kubernetes.io/cluster/{{ infra_id }},Values=owned"
+# amazon.aws.ec2_instance_info:
+#   aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+#   aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+#   security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+#   region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+#   ec2_url: '{{ aws_ec2_url | default(omit) }}'
+#   validate_certs: '{{ aws_ssl_enabled }}'
+#   filters:
+#     "{{ aws_tag }}": "owned"
   register: ec2_node_info
+
+- name: convert
+  set_fact:
+    ec2_instances: "{{ ec2_node_info.stdout | from_json }}"
+
+- name: Show ec2 instances
+  debug:
+    msg: "{{ ec2_instances | json_query('Reservations[].Instances[].InstanceId') }}"
+
+- name: Terminate instances that were previously launched
+  delegate_to: localhost
+  amazon.aws.ec2_instance:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    state: "absent"
+    wait: true
+    instance_ids: "{{ ec2_instances | json_query('Reservations[].Instances[].InstanceId')  }}"
+
+- name: Remove Listeners
+  delegate_to: localhost
+  community.aws.elb_network_lb:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    name: "{{ item }}"
+#    state: present
+    purge_listeners: true
+    wait: true
+  loop:
+    - "{{ infra_id }}-ext"
+    - "{{ infra_id }}-int"
+
+- name: Remove target groups
+  delegate_to: localhost
+  community.aws.elb_target_group:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    name: "{{ item }}"
+    state: absent
+    wait: true
+  loop:
+    - "{{ infra_id }}-aext"
+    - "{{ infra_id }}-aint"
+    - "{{ infra_id }}-sint"
+
+- name: Remove ELBs
+  delegate_to: localhost
+  community.aws.elb_network_lb:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    name: "{{ item }}"
+    state: absent
+    wait: true
+  loop:
+    - "{{ infra_id }}-ext"
+    - "{{ infra_id }}-int"
+
+- name: Purge SG rules before removal
+  delegate_to: localhost
+  amazon.aws.ec2_group:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    name: "{{ item }}"
+    purge_rules: true
+    description: "junk"
+  loop:
+    - "{{ infra_id }}-master-sg"
+    - "{{ infra_id }}-worker-sg"
+
+- name: Remove SGs
+  delegate_to: localhost
+  amazon.aws.ec2_group:
+    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+    validate_certs: '{{ aws_ssl_enabled }}'
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ infra_id }}-master-sg"
+    - "{{ infra_id }}-worker-sg"
+
+# TODO: Still need to remove that k8s-elb sg
+
+#- name: Remove IAM policies
+#  delegate_to: localhost
+#  community.aws.iam_role:
+#    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+#    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+#    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+#    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+#    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+#    validate_certs: '{{ aws_ssl_enabled }}'
+#    name: "{{ item }}"
+#    managed_policies: []
+#  loop:
+#    - "{{ infra_id }}-master-role"
+#    - "{{ infra_id }}-worker-role"
+
+#- name: Delete IAM roles
+#  delegate_to: localhost
+#  community.aws.iam_role:
+#    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+#    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+#    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+#    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+#    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+#    validate_certs: '{{ aws_ssl_enabled }}'
+#    name: "{{ item }}"
+#    state: absent
+#  loop:
+#    - "{{ infra_id }}-master-role"
+#    - "{{ infra_id }}-worker-role"
+
+#- name: Get IAM user facts
+#  delegate_to: localhost
+#  community.aws.iam_user_info:
+#    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+#    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+#    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+#    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+#    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+#    validate_certs: '{{ aws_ssl_enabled }}'
+#  register: iam_user_info
+
+#- name: Show IAM user info
+#  debug:
+#    #msg: "{{ iam_user_info.iam_users }}"
+#    msg: "{{ iam_user_info | json_query(\"[?starts_with(iam_users.user_name, 'ocp4')]\") }}"
+
+#- name: Delete the user
+#  community.aws.iam_user:
+#    aws_access_key: "{{ ansible_env.AWS_ACCESS_KEY_ID | default(omit) }}"
+#    aws_secret_key: "{{ ansible_env.AWS_SECRET_ACCESS_KEY | default(omit) }}"
+#    security_token: "{{ ansible_env.AWS_SESSION_TOKEN | default(omit) }}"
+#    region: "{{ ansible_env.AWS_DEFAULT_REGION | default(omit) }}"
+#    ec2_url: '{{ aws_ec2_url | default(omit) }}'
+#    validate_certs: '{{ aws_ssl_enabled }}'
+#    name: testuser1
+#    state: absent

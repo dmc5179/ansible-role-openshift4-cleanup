@@ -2,4 +2,7 @@
 # defaults file for ansible-role-openshift4-cleanup
 
 # Directory passed to the openshift-install binary as --dir where state is maintained
-conf_dir:
+conf_dir: "/home/danclark/openshift_clusters/redhatgov"
+
+aws_ssl_enabled: true
+

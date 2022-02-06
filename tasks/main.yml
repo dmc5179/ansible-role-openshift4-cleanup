@@ -6,8 +6,19 @@
     msg: "conf_dir must be defined"
   when: conf_dir is not defined
 
-- name: Slurp json state
-  shell: grep -A 2 'ClusterID' {{ conf_dir }}/.openshift_install_state.json | grep InfraID | awk '{print $2}' | tr -d '"' | awk -F\- '{print $NF}'
+#- name: Slurp install state
+#  slurp:
+#    src: "{{ conf_dir }}/.openshift_install_state.json"
+#  register: install_state_b64
+
+#- name: Show infra id
+#  debug:
+#    var: install_state_b64.content | b64decode | community.general.json_query('"*installconfig.ClusterID"')
+#    #msg: "{{ install_state_b64.content | b64decode }}"
+
+# There's a better way to do this above but the json has quotes in it which is getting parsed oddly
+- name: Gather infra ID
+  shell: jq -r '."*installconfig.ClusterID".InfraID' {{ conf_dir }}/.openshift_install_state.json
   register: cluster_state
 
 - name: Set cluster infra name
@@ -19,4 +30,4 @@
     var: infra_id
 
 - name: Destroy ec2 instances
-  include_tasks: ec2_cleanup.yml
+  import_tasks: ec2_cleanup.yml

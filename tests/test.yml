@@ -1,5 +1,5 @@
 ---
 - hosts: localhost
-  remote_user: root
+  become: false
   roles:
     - ../ansible-role-openshift4-cleanup
